@@ -25,8 +25,8 @@
 */
 
 #include <SPI.h>
-#include "../Itho/IthoCC1101.h"
-#include "../Itho/IthoPacket.h"
+#include "IthoCC1101.h"
+#include "IthoPacket.h"
 #include <Ticker.h>
 
 #define ITHO_IRQ_PIN D2
@@ -56,6 +56,7 @@ void setup(void) {
   Serial.println("join command sent");
   pinMode(ITHO_IRQ_PIN, INPUT);
   attachInterrupt(ITHO_IRQ_PIN, ITHOinterrupt, RISING);
+  sendFullSpeed();
 }
 
 void loop(void) {
