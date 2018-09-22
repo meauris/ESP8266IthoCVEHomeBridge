@@ -33,8 +33,8 @@
 /*
  * The values of ssid and password are required for the webserver to work
  */
-char* ssid = "IKHEBBEREIKHIER";
-char* password = "00022711";
+char* ssid = "";
+char* password = "";
 
 /*
  * change the value of repeater to true if repeater functionality is required, 
