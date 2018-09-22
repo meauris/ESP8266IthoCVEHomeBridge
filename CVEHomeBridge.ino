@@ -28,14 +28,20 @@
 #include "IthoCC1101.h"
 #include "IthoPacket.h"
 #include <Ticker.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 
 #define ITHO_IRQ_PIN D2
+
+ESP8266WebServer server;
+char* ssid = "IKHEBBEREIKHIER";
+char* password = "00022711";
 
 IthoCC1101 rf;
 IthoPacket packet;
 Ticker ITHOticker;
 
-const uint8_t RFTid[] = {106, 170, 106, 101, 154, 107, 154, 86}; // my ID
+const uint8_t RFTid[] = {101, 89, 154, 153, 170, 105, 154, 86}; // my ID
 
 bool ITHOhasPacket = false;
 IthoCommand RFTcommand[3] = {IthoUnknown, IthoUnknown, IthoUnknown};
@@ -46,23 +52,151 @@ IthoCommand RFTstate = IthoUnknown;
 IthoCommand savedRFTstate = IthoUnknown;
 bool RFTidChk[3] = {false, false, false};
 
-void setup(void) {
+bool demoDone = false;
+const int ledPin =  LED_BUILTIN;
+int ledState = LOW;
+unsigned long previousMillis = 0;
+const long cycleInterval = 10000;
+
+void setup(void) { 
   Serial.begin(115200);
   delay(500);
-  Serial.println("setup begin");
+  Serial.println("######  setup begin  ######");
   rf.init();
-  Serial.println("setup done");
-  sendRegister();
-  Serial.println("join command sent");
   pinMode(ITHO_IRQ_PIN, INPUT);
   attachInterrupt(ITHO_IRQ_PIN, ITHOinterrupt, RISING);
-  sendFullSpeed();
+  setupWiFi();
+  setupServer();
+  Serial.println("######  setup done   ######");
+  delay(500);
+  digitalWrite(LED_BUILTIN, LOW);
 }
 
 void loop(void) {
   // do whatever you want, check (and reset) the ITHOhasPacket flag whenever you like
   if (ITHOhasPacket) {
     showPacket();
+  }
+
+    server.handleClient();
+
+  return;
+  
+  //set CC1101 registers
+  rf.initReceive();
+  Serial.print("start\n");
+  sei();
+
+  while (1==1) {
+    if (rf.checkForNewPacket()) {
+      packet = rf.getLastPacket();
+      //show counter
+      Serial.print("counter=");
+      Serial.print(packet.counter);
+      Serial.print(", ");
+      //show command
+      switch (packet.command) {
+        case IthoUnknown:
+          Serial.print("unknown\n");
+          break;
+        case IthoLow:
+          Serial.print("low\n");
+          break;
+        case IthoMedium:
+          Serial.print("medium\n");
+          break;
+        case IthoFull:
+          Serial.print("full\n");
+          break;
+        case IthoTimer1:
+          Serial.print("timer1\n");
+          break;
+        case IthoTimer2:
+          Serial.print("timer2\n");
+          break;
+        case IthoTimer3:
+          Serial.print("timer3\n");
+          break;
+        case IthoJoin:
+          Serial.print("join\n");
+          break;
+        case IthoLeave:
+          Serial.print("leave\n");
+          break;
+      } // switch (recv) command
+    } // checkfornewpacket
+  yield();
+  } // while 1==1
+  
+}
+
+void usage() {
+  server.send(200, "text/plain", "/press?button=low\r\n");
+}
+
+void pressButton() {
+   if (!server.hasArg("button")) {
+       return returnFail("Please provide a button, e.g. ?button=low");
+   }
+   
+   String button = server.arg("button");
+   Serial.print("Pressing button: ");
+   Serial.println(button);
+
+   if (button == "low") { 
+       sendLowSpeed();
+   } else if (button == "medium") { 
+       sendMediumSpeed();
+   } else if (button == "high") { 
+       sendHighSpeed();
+   } else if (button == "timer") {     
+       sendTimer();
+   } else {
+      return returnFail("Unknown button. Buttons are: low, medium, high, timer and register");
+   }
+  
+   returnJson("\"button\": \"" + button + "\"");
+}
+
+void returnJson(String msg)
+{
+    server.send(200, "application/json", "{\"success\": true, "+  msg + "}\r\n");
+}
+
+void returnFail(String msg)
+{
+    server.sendHeader("Connection", "close");
+    server.send(500, "application/json", "{\"success\": false, \"message\": \""+ msg + "\"}\r\n");
+}
+
+bool setupServer(){
+    // server setup
+  server.on("/", usage);
+  server.on("/press", pressButton);
+  server.begin();
+  Serial.println("Server started");
+}
+
+bool setupWiFi(){
+  // connect to wifi
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println("");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("");
+}
+
+void flashLed(){
+  for (int thisPin = 0; thisPin < 20; thisPin++) {
+    digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+    delay(20);
+    digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+    delay(20);
   }
 }
 
@@ -177,18 +311,21 @@ void sendStandbySpeed() {
 void sendLowSpeed() {
   Serial.println("sending low...");
   rf.sendCommand(IthoLow);
+  flashLed();
   Serial.println("sending low done.");
 }
 
 void sendMediumSpeed() {
   Serial.println("sending medium...");
   rf.sendCommand(IthoMedium);
+  flashLed();
   Serial.println("sending medium done.");
 }
 
 void sendHighSpeed() {
   Serial.println("sending high...");
   rf.sendCommand(IthoHigh);
+  flashLed();
   Serial.println("sending high done.");
 }
 
