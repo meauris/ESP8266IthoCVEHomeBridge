@@ -34,8 +34,8 @@
 #define ITHO_IRQ_PIN D2
 
 ESP8266WebServer server;
-char* ssid = "IKHEBBEREIKHIER";
-char* password = "00022711";
+char* ssid = "YOUR_SSID";
+char* password = "YOUR_PASSWORD";
 
 IthoCC1101 rf;
 IthoPacket packet;
