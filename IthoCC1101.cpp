@@ -88,7 +88,7 @@ void IthoCC1101::initSendMessage1()
 	writeRegister(CC1101_CHANNR ,0x00);		//00000000
 	writeRegister(CC1101_DEVIATN ,0x40);	//01000000
 	writeRegister(CC1101_FREND0 ,0x17);		//00010111	use index 7 in PA table
-	writeRegister(CC1101_MCSM0 ,0x18);		//00011000	PO timeout Approx. 146µs - 171µs, Auto calibrate When going from IDLE to RX or TX (or FSTXON)
+	writeRegister(CC1101_MCSM0 ,0x18);		//00011000	PO timeout Approx. 146ï¿½s - 171ï¿½s, Auto calibrate When going from IDLE to RX or TX (or FSTXON)
 	writeRegister(CC1101_FSCAL3 ,0xA9);		//10101001
 	writeRegister(CC1101_FSCAL2 ,0x2A);		//00101010
 	writeRegister(CC1101_FSCAL1 ,0x00);		//00000000
@@ -176,7 +176,7 @@ void IthoCC1101::initSendMessage2(IthoCommand command)
 	writeRegister(CC1101_CHANNR ,0x00);		//00000000
 	writeRegister(CC1101_DEVIATN ,0x50);	//difference compared to message1
 	writeRegister(CC1101_FREND0 ,0x17);		//00010111	use index 7 in PA table
-	writeRegister(CC1101_MCSM0 ,0x18);		//00011000	PO timeout Approx. 146µs - 171µs, Auto calibrate When going from IDLE to RX or TX (or FSTXON)
+	writeRegister(CC1101_MCSM0 ,0x18);		//00011000	PO timeout Approx. 146ï¿½s - 171ï¿½s, Auto calibrate When going from IDLE to RX or TX (or FSTXON)
 	writeRegister(CC1101_FSCAL3 ,0xA9);		//10101001
 	writeRegister(CC1101_FSCAL2 ,0x2A);		//00101010
 	writeRegister(CC1101_FSCAL1 ,0x00);		//00000000
@@ -976,7 +976,7 @@ uint8_t IthoCC1101::ReadRSSI()
 
 bool IthoCC1101::checkID(const uint8_t *id)
 {
-	for (uint8_t i=0; i<8;i++)
+	for (uint8_t i=0; i<7;i++)
 		if (id[i] != inIthoPacket.deviceId2[i])
 			return false;
 	return true;

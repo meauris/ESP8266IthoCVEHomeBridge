@@ -10,19 +10,16 @@
    For ESP8266 tested with ESP8266 core for Arduino v 2.1.0 and 2.2.0 Stable
    (See https://github.com/esp8266/Arduino/ )
 
+  Modified by Meauris:
+  Extra features added:
+  * Connects to WiFi netwerk as a station using ESP8266WiFi
+  * Prints the received IP address to serial at 115200 baud
+  * Responds to http get commands using ESP8266WebServer and prints to serial at 115200 baud
+  * Responds to rft packets, if the RFTid is the same as configured under RFTid[] the desired state is saved and printed to serial at 115200 baud.
+  * The root path (http://xxx.xxx.xxx.xxx/) returns a json respons containing the current status of the CVE
+  * This solution is also usable as a repeater, which results in an increased signal range of the RFT.
 */
 
-/*
-  CC11xx pins    ESP pins Arduino pins  Description
-  1 - VCC        VCC      VCC           3v3
-  2 - GND        GND      GND           Ground
-  3 - MOSI       13=D7    Pin 11        Data input to CC11xx
-  4 - SCK        14=D5    Pin 13        Clock pin
-  5 - MISO/GDO1  12=D6    Pin 12        Data output from CC11xx / serial clock from CC11xx
-  6 - GDO2       04=D2    Pin 2?        Serial data to CC11xx
-  7 - GDO0       ?        Pin  ?        output as a symbol of receiving or sending data
-  8 - CSN        15=D8    Pin 10        Chip select / (SPI_SS)
-*/
 
 #include <SPI.h>
 #include "IthoCC1101.h"
@@ -33,18 +30,31 @@
 
 #define ITHO_IRQ_PIN D2
 
-ESP8266WebServer server;
-char* ssid = "YOUR_SSID";
-char* password = "YOUR_PASSWORD";
+/*
+ * The values of ssid and password are required for the webserver to work
+ */
+char* ssid = "IKHEBBEREIKHIER";
+char* password = "00022711";
 
+/*
+ * change the value of repeater to true if repeater functionality is required, 
+ * you can also change this value by navigating to http://xxx.xxx.xxx.xxx/repeater?value=true
+ */
+bool repeater = false;
+
+ 
+ESP8266WebServer server;
 IthoCC1101 rf;
 IthoPacket packet;
 Ticker ITHOticker;
 
-const uint8_t RFTid[] = {101, 89, 154, 153, 170, 105, 154, 86}; // my ID
+// This constant is used to filter out other RFT device packets and to send packets with
+// Use Serial.println("ID of sender: " + rf.getLastIDstr()); to find the sender ID of your RFT device
+const uint8_t RFTid[] = {0x66, 0xa9, 0x6a, 0xa5, 0xa9, 0xa9, 0x9a, 0x56}; 
 
 bool ITHOhasPacket = false;
-IthoCommand RFTcommand[3] = {IthoUnknown, IthoUnknown, IthoUnknown};
+bool RFTrepeater = false;
+IthoCommand RFTcommand[3] = {IthoLow, IthoMedium, IthoHigh};
 byte RFTRSSI[3] = {0, 0, 0};
 byte RFTcommandpos = 0;
 IthoCommand RFTlastCommand = IthoLow;
@@ -52,82 +62,35 @@ IthoCommand RFTstate = IthoUnknown;
 IthoCommand savedRFTstate = IthoUnknown;
 bool RFTidChk[3] = {false, false, false};
 
-bool demoDone = false;
-const int ledPin =  LED_BUILTIN;
-int ledState = LOW;
-unsigned long previousMillis = 0;
-const long cycleInterval = 10000;
+// variables for the led flashing
+int LedFlashTimes = 0;
+int LedState = HIGH; //means off
+const int OFF = HIGH;
+const int ON = LOW;
+unsigned long previousMillisLedStateOn = 0;
+const unsigned long flashIntervalMillis = 10;
 
 void setup(void) { 
   Serial.begin(115200);
   delay(500);
   Serial.println("######  setup begin  ######");
-  rf.init();
-  pinMode(ITHO_IRQ_PIN, INPUT);
-  attachInterrupt(ITHO_IRQ_PIN, ITHOinterrupt, RISING);
+  setupLED();
+  setupRF();
   setupWiFi();
   setupServer();
   Serial.println("######  setup done   ######");
   delay(500);
-  digitalWrite(LED_BUILTIN, LOW);
 }
 
 void loop(void) {
-  // do whatever you want, check (and reset) the ITHOhasPacket flag whenever you like
+  ledState();
   if (ITHOhasPacket) {
     showPacket();
+    if(repeater) repeatReceivedPacketCommand();
   }
-
-    server.handleClient();
-
-  return;
+  server.handleClient();
   
-  //set CC1101 registers
-  rf.initReceive();
-  Serial.print("start\n");
-  sei();
-
-  while (1==1) {
-    if (rf.checkForNewPacket()) {
-      packet = rf.getLastPacket();
-      //show counter
-      Serial.print("counter=");
-      Serial.print(packet.counter);
-      Serial.print(", ");
-      //show command
-      switch (packet.command) {
-        case IthoUnknown:
-          Serial.print("unknown\n");
-          break;
-        case IthoLow:
-          Serial.print("low\n");
-          break;
-        case IthoMedium:
-          Serial.print("medium\n");
-          break;
-        case IthoFull:
-          Serial.print("full\n");
-          break;
-        case IthoTimer1:
-          Serial.print("timer1\n");
-          break;
-        case IthoTimer2:
-          Serial.print("timer2\n");
-          break;
-        case IthoTimer3:
-          Serial.print("timer3\n");
-          break;
-        case IthoJoin:
-          Serial.print("join\n");
-          break;
-        case IthoLeave:
-          Serial.print("leave\n");
-          break;
-      } // switch (recv) command
-    } // checkfornewpacket
   yield();
-  } // while 1==1
-  
 }
 
 void usage() {
@@ -169,6 +132,13 @@ void returnFail(String msg)
     server.send(500, "application/json", "{\"success\": false, \"message\": \""+ msg + "\"}\r\n");
 }
 
+bool setupRF(){
+  rf.init();
+  rf.initReceive();
+  pinMode(ITHO_IRQ_PIN, INPUT);
+  attachInterrupt(ITHO_IRQ_PIN, ITHOinterrupt, RISING);
+}
+
 bool setupServer(){
     // server setup
   server.on("/", usage);
@@ -191,13 +161,28 @@ bool setupWiFi(){
   Serial.println("");
 }
 
-void flashLed(){
-  for (int thisPin = 0; thisPin < 20; thisPin++) {
-    digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-    delay(20);
-    digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
-    delay(20);
-  }
+void setupLED() {
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, LedState);
+}
+
+void flashLed(int times){
+  LedFlashTimes += times;
+}
+
+void ledState() {
+  unsigned long currentMillis = millis();
+  if ((LedFlashTimes == 0) && (LedState == ON) && ((currentMillis - previousMillisLedStateOn) > flashIntervalMillis)) {
+    LedState = OFF;
+  } else if ((LedFlashTimes > 0) && (LedState == OFF)) {
+    LedFlashTimes--;
+    previousMillisLedStateOn = currentMillis;
+    LedState = ON;
+  } 
+  else if ((LedFlashTimes > 0) && (LedState == ON) && ((currentMillis - previousMillisLedStateOn) > flashIntervalMillis)) {
+    LedState = OFF;
+  } 
+  digitalWrite(LED_BUILTIN, LedState);
 }
 
 void ITHOinterrupt() {
@@ -205,6 +190,7 @@ void ITHOinterrupt() {
 }
 
 void ITHOcheck() {
+  flashLed(1);
   if (rf.checkForNewPacket()) {
     IthoCommand cmd = rf.getLastCommand();
     if (++RFTcommandpos > 2) RFTcommandpos = 0;  // store information in next entry of ringbuffers
@@ -212,10 +198,21 @@ void ITHOcheck() {
     RFTRSSI[RFTcommandpos]    = rf.ReadRSSI();
     bool chk = rf.checkID(RFTid);
     RFTidChk[RFTcommandpos]   = chk;
-    if ((cmd != IthoUnknown) && chk) {  // only act on good cmd and correct id.
+    if ((cmd != IthoUnknown) && chk) {  // only act on good cmd and correct RFTid.
       ITHOhasPacket = true;
     }
   }
+}
+
+void repeatReceivedPacketCommand() {
+  ITHOhasPacket = false;
+  uint8_t goodpos = findRFTlastCommand();
+  if (goodpos != -1)  RFTlastCommand = RFTcommand[goodpos];
+  else                RFTlastCommand = IthoUnknown;
+  Serial.print("Repeating command: [");
+  Serial.print(RFTlastCommand);
+  rf.sendCommand(RFTlastCommand);
+  Serial.println("]\n");
 }
 
 void showPacket() {
@@ -311,21 +308,21 @@ void sendStandbySpeed() {
 void sendLowSpeed() {
   Serial.println("sending low...");
   rf.sendCommand(IthoLow);
-  flashLed();
+  flashLed(10);
   Serial.println("sending low done.");
 }
 
 void sendMediumSpeed() {
   Serial.println("sending medium...");
   rf.sendCommand(IthoMedium);
-  flashLed();
+  flashLed(10);
   Serial.println("sending medium done.");
 }
 
 void sendHighSpeed() {
   Serial.println("sending high...");
   rf.sendCommand(IthoHigh);
-  flashLed();
+  flashLed(10);
   Serial.println("sending high done.");
 }
 
